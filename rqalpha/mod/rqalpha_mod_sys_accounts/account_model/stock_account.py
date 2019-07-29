@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright 2017 Ricequant, Inc
+# Copyright 2019 Ricequant, Inc
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# * Commercial Usage: please contact public@ricequant.com
+# * Non-Commercial Usage:
+#     Licensed under the Apache License, Version 2.0 (the "License");
+#     you may not use this file except in compliance with the License.
+#     You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#         http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#     Unless required by applicable law or agreed to in writing, software
+#     distributed under the License is distributed on an "AS IS" BASIS,
+#     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#     See the License for the specific language governing permissions and
+#     limitations under the License.
 
 import six
 import datetime
@@ -38,6 +40,7 @@ class StockAccount(BaseAccount):
     def __init__(self, total_cash, positions, backward_trade_set=None, dividend_receivable=None, register_event=True):
         super(StockAccount, self).__init__(total_cash, positions, backward_trade_set, register_event)
         self._dividend_receivable = dividend_receivable if dividend_receivable else {}
+        self._pending_transform = {}
 
     def register_event(self):
         event_bus = Environment.get_instance().event_bus
@@ -69,6 +72,7 @@ class StockAccount(BaseAccount):
             'total_cash': self._total_cash,
             'backward_trade_set': list(self._backward_trade_set),
             'dividend_receivable': self._dividend_receivable,
+            'pending_transform': self._pending_transform,
         }
 
     def set_state(self, state):
@@ -76,17 +80,19 @@ class StockAccount(BaseAccount):
         self._total_cash = state['total_cash']
         self._backward_trade_set = set(state['backward_trade_set'])
         self._dividend_receivable = state['dividend_receivable']
+        self._pending_transform = state.get("pending_transform", {})
         self._positions.clear()
         for order_book_id, v in six.iteritems(state['positions']):
             position = self._positions.get_or_create(order_book_id)
             position.set_state(v)
 
-    def fast_forward(self, orders, trades=list()):
+    def fast_forward(self, orders, trades=None):
         # 计算 Positions
-        for trade in trades:
-            if trade.exec_id in self._backward_trade_set:
-                continue
-            self._apply_trade(trade)
+        if trades:
+            for trade in trades:
+                if trade.exec_id in self._backward_trade_set:
+                    continue
+                self._apply_trade(trade)
         # 计算 Frozen Cash
         self._frozen_cash = 0
         frozen_quantity = defaultdict(int)
@@ -150,16 +156,26 @@ class StockAccount(BaseAccount):
         self._handle_dividend_book_closure(last_date)
         self._handle_dividend_payable(trading_date)
         self._handle_split(trading_date)
+        self._handle_transform()
 
     def _on_settlement(self, event):
         env = Environment.get_instance()
         for position in list(self._positions.values()):
             order_book_id = position.order_book_id
             if position.is_de_listed() and position.quantity != 0:
+                try:
+                    transform_data = env.data_proxy.get_share_transformation(order_book_id)
+                except NotImplementedError:
+                    pass
+                else:
+                    if transform_data is not None:
+                        self._pending_transform[order_book_id] = transform_data
+                        continue
                 if env.config.mod.sys_accounts.cash_return_by_stock_delisted:
                     self._total_cash += position.market_value
                 user_system_log.warn(
-                    _(u"{order_book_id} is expired, close all positions by system").format(order_book_id=order_book_id)
+                    _(u"{order_book_id} is expired, close all positions by system").format(
+                        order_book_id=order_book_id)
                 )
                 self._positions.pop(order_book_id, None)
             elif position.quantity == 0:
@@ -206,7 +222,7 @@ class StockAccount(BaseAccount):
             if dividend is None:
                 continue
 
-            dividend_per_share = dividend['dividend_cash_before_tax'] / dividend['round_lot']
+            dividend_per_share = sum(dividend['dividend_cash_before_tax'] / dividend['round_lot'])
             if np.isnan(dividend_per_share):
                 raise RuntimeError("Dividend per share of {} is not supposed to be nan.".format(order_book_id))
 
@@ -224,11 +240,11 @@ class StockAccount(BaseAccount):
 
                 try:
                     self._dividend_receivable[order_book_id]['payable_date'] = self._int_to_date(
-                        dividend['payable_date']
+                        dividend['payable_date'][0]
                     )
                 except ValueError:
                     self._dividend_receivable[order_book_id]['payable_date'] = self._int_to_date(
-                        dividend['ex_dividend_date']
+                        dividend['ex_dividend_date'][0]
                     )
 
     def _handle_split(self, trading_date):
@@ -238,6 +254,19 @@ class StockAccount(BaseAccount):
             if ratio is None:
                 continue
             position.split_(ratio)
+
+    def _handle_transform(self):
+        if not self._pending_transform:
+            return
+        for predecessor, (successor, conversion_ratio) in six.iteritems(self._pending_transform):
+            self._positions.get_or_create(successor).combine_with_transformed_position(
+                self._positions[predecessor], conversion_ratio
+            )
+            self._positions.pop(predecessor, None)
+            user_system_log.warn(_(u"{predecessor} code has changed to {successor}, change position by system").format(
+                predecessor=predecessor, successor=successor))
+
+        self._pending_transform.clear()
 
     @property
     def total_value(self):

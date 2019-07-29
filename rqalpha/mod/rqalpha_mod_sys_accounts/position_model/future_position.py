@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright 2017 Ricequant, Inc
+# Copyright 2019 Ricequant, Inc
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# * Commercial Usage: please contact public@ricequant.com
+# * Non-Commercial Usage:
+#     Licensed under the Apache License, Version 2.0 (the "License");
+#     you may not use this file except in compliance with the License.
+#     You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#         http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#     Unless required by applicable law or agreed to in writing, software
+#     distributed under the License is distributed on an "AS IS" BASIS,
+#     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#     See the License for the specific language governing permissions and
+#     limitations under the License.
 
 from rqalpha.model.base_position import BasePosition
 from rqalpha.environment import Environment
@@ -78,9 +80,9 @@ class FuturePosition(BasePosition):
     @property
     def margin_rate(self):
         env = Environment.get_instance()
-        margin_info = env.data_proxy.get_margin_info(self.order_book_id)
+        instrument = env.get_instrument(self.order_book_id)
         margin_multiplier = env.config.base.margin_multiplier
-        return margin_info['long_margin_ratio'] * margin_multiplier
+        return instrument.margin_rate * margin_multiplier
 
     @property
     def market_value(self):

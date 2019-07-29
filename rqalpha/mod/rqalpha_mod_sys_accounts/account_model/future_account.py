@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright 2017 Ricequant, Inc
+# Copyright 2019 Ricequant, Inc
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# * Commercial Usage: please contact public@ricequant.com
+# * Non-Commercial Usage:
+#     Licensed under the Apache License, Version 2.0 (the "License");
+#     you may not use this file except in compliance with the License.
+#     You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#         http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#     Unless required by applicable law or agreed to in writing, software
+#     distributed under the License is distributed on an "AS IS" BASIS,
+#     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#     See the License for the specific language governing permissions and
+#     limitations under the License.
 
 import six
 
@@ -28,11 +30,9 @@ from ..api.api_future import order
 
 def margin_of(order_book_id, quantity, price):
     env = Environment.get_instance()
-    margin_info = env.data_proxy.get_margin_info(order_book_id)
     margin_multiplier = env.config.base.margin_multiplier
-    margin_rate = margin_info['long_margin_ratio'] * margin_multiplier
-    contract_multiplier = env.get_instrument(order_book_id).contract_multiplier
-    return quantity * contract_multiplier * price * margin_rate
+    instrument = env.get_instrument(order_book_id)
+    return quantity * instrument.contract_multiplier * price * instrument.margin_rate * margin_multiplier
 
 
 class FutureAccount(BaseAccount):
@@ -56,12 +56,22 @@ class FutureAccount(BaseAccount):
             event_bus.add_listener(EVENT.BAR, self._update_last_price)
             event_bus.add_listener(EVENT.TICK, self._update_last_price)
 
-    def fast_forward(self, orders, trades=list()):
+    def fast_forward(self, orders, trades=None):
         # 计算 Positions
-        for trade in trades:
-            if trade.exec_id in self._backward_trade_set:
-                continue
-            self._apply_trade(trade)
+        if trades:
+            close_trades = []
+            # 先处理开仓
+            for trade in trades:
+                if trade.exec_id in self._backward_trade_set:
+                    continue
+                if trade.position_effect == POSITION_EFFECT.OPEN:
+                    self._apply_trade(trade)
+                else:
+                    close_trades.append(trade)
+            # 后处理平仓
+            for trade in close_trades:
+                self._apply_trade(trade)
+
         # 计算 Frozen Cash
         self._frozen_cash = sum(self._frozen_cash_of_order(order) for order in orders if order.is_active())
 

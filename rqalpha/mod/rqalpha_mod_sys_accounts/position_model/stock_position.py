@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright 2017 Ricequant, Inc
+# Copyright 2019 Ricequant, Inc
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# * Commercial Usage: please contact public@ricequant.com
+# * Non-Commercial Usage:
+#     Licensed under the Apache License, Version 2.0 (the "License");
+#     you may not use this file except in compliance with the License.
+#     You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#         http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+#     Unless required by applicable law or agreed to in writing, software
+#     distributed under the License is distributed on an "AS IS" BASIS,
+#     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#     See the License for the specific language governing permissions and
+#     limitations under the License.
 from rqalpha.model.base_position import BasePosition
 from rqalpha.const import DEFAULT_ACCOUNT_TYPE, SIDE
 from rqalpha.environment import Environment
@@ -74,9 +75,10 @@ class StockPosition(BasePosition):
                 self._avg_price = (self._avg_price * self._quantity + trade.last_quantity * trade.last_price) / (
                     self._quantity + trade.last_quantity)
             self._quantity += trade.last_quantity
-            if self.stock_t1 and self._order_book_id not in {'510900.XSHG', '513030.XSHG', '513100.XSHG', '513500.XSHG'}:
-                # 除了上述 T+0 基金，其他都是 T+1
-                self._non_closable += trade.last_quantity
+            if self.stock_t1:
+                env = Environment.get_instance()
+                if env.get_instrument(self._order_book_id).market_tplus == 1:
+                    self._non_closable += trade.last_quantity
         else:
             self._quantity -= trade.last_quantity
             self._frozen -= trade.last_quantity
@@ -90,6 +92,11 @@ class StockPosition(BasePosition):
 
     def cal_close_today_amount(self, *args):
         return 0
+
+    def combine_with_transformed_position(self, predecessor_position, share_conversion_ratio):
+        total = self._avg_price * self._quantity + predecessor_position.avg_price * predecessor_position.quantity
+        self._quantity += predecessor_position.quantity * share_conversion_ratio
+        self._avg_price = total / self._quantity
 
     @property
     def type(self):

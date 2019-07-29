@@ -1,18 +1,21 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright 2017 Ricequant, Inc
+# Copyright 2019 Ricequant, Inc
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# * Commercial Usage: please contact public@ricequant.com
+# * Non-Commercial Usage:
+#     Licensed under the Apache License, Version 2.0 (the "License");
+#     you may not use this file except in compliance with the License.
+#     You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#         http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#     Unless required by applicable law or agreed to in writing, software
+#     distributed under the License is distributed on an "AS IS" BASIS,
+#     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#     See the License for the specific language governing permissions and
+#     limitations under the License.
+
 
 from copy import copy
 
@@ -22,11 +25,12 @@ from rqalpha.utils.i18n import gettext as _
 from rqalpha.utils import is_valid_price, account_type_str2enum
 from rqalpha.events import EVENT, Event
 from rqalpha.model.trade import Trade
+from rqalpha.model.booking import Booking
 from rqalpha.const import BAR_STATUS, SIDE, ORDER_TYPE
 
 from .slippage import SlippageDecider
 from .utils import init_portfolio
-from .booking import SimulationBooking
+# from .booking import SimulationBooking
 
 
 class SignalBroker(AbstractBroker):
@@ -39,7 +43,7 @@ class SignalBroker(AbstractBroker):
         return init_portfolio(self._env)
 
     def get_booking(self):
-        return SimulationBooking()
+        return Booking()
 
     def get_open_orders(self, order_book_id=None):
         return []
@@ -94,14 +98,13 @@ class SignalBroker(AbstractBroker):
                     quantity=order.quantity,
                     bar_status=BAR_STATUS.LIMIT_UP
                 ))
-                return
+
             if order.side == SIDE.SELL and deal_price <= price_board.get_limit_down(order_book_id):
                 user_system_log.warning(_(u"You have traded {order_book_id} with {quantity} lots in {bar_status}").format(
                     order_book_id=order_book_id,
                     quantity=order.quantity,
                     bar_status=BAR_STATUS.LIMIT_DOWN
                 ))
-                return
 
         ct_amount = account.positions.get_or_create(order_book_id).cal_close_today_amount(order.quantity, order.side)
         trade_price = self._slippage_decider.get_trade_price(order, deal_price)
